@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Capture System</title>
+</head>
+<body>
+    <div class="main-container">
+        <div class="preview-container">
+            <div class="preview-content">
+                <img id="previewStream" src="/video_feed" alt="Live Preview">
+                <img id="latestPhoto" alt="Latest Capture" style="display: none;">
+                <div id="overlayLayer"></div>
+                <button id="captureBtn" title="Take Photo"></button>
+            </div>
+        </div>
+        <div class="photo-reel" id="photoReel">
+            {% if photos %}
+                {% for photo in photos[:3] %}
+                    <img src="/captures/{{ photo }}" alt="{{ photo }}" onclick="showFullSize(this.src)">
+                {% endfor %}
+            {% else %}
+                <div id="noPhotosMessage">No photos yet</div>
+            {% endif %}
+        </div>
+    </div>
+    <script src="/static/js/main.js"></script>
+    <style>
+        * {
+            cursor: none !important;
+        }
+    </style>
+</body>
+</html>

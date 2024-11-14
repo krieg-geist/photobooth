@@ -1,0 +1,57 @@
+.latest-photo {
+    width: 100%;
+    max-height: 800px;
+    object-fit: cover;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.photo-reel {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 10px 0;
+}
+
+.photo-reel img {
+    width: 100px;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.photo-reel img:hover {
+    transform: scale(1.05);
+}
+
+.no-photos {
+    font-style: italic;
+    color: #666;
+}
+
+@media (max-width: 600px) {
+    .latest-photo {
+        max-height: 300px;
+    }
+    
+    .photo-reel img {
+        width: 80px;
+        height: 80px;
+    }
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+@keyframes scoreGlow {
+    0% { filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.7)); }
+    50% { filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.9)); }
+    100% { filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.7)); }
+}
