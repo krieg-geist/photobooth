@@ -2,3 +2,4 @@ captures/*
 credentials.json
 env/*
 token.pickle
+*.pyc
