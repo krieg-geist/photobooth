@@ -276,23 +276,28 @@ class CameraCaptureSystem:
         if hasattr(self, 'picam2'):
             self.picam2.stop()
 
-    def _setup_watermark(self):
+    def setup_watermark(self):
         """Prepare the watermark image once during initialization."""
         with Image.open('./static/img/watermark.png') as watermark:
             # Convert watermark to RGBA if it isn't already
             watermark = watermark.convert('RGBA')
             
-            # Fixed dimensions for the watermark
+            original_width, original_height = watermark.size
             target_width = 1080
-            target_height = 146
             
-            # Resize watermark to exact dimensions needed
-            watermark = watermark.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            # Only scale if original width is larger than target
+            if original_width > target_width:
+                # Calculate new height maintaining aspect ratio
+                scale_factor = target_width / original_width
+                target_height = int(original_height * scale_factor)
+                
+                # Resize watermark
+                watermark = watermark.resize((target_width, target_height), Image.Resampling.LANCZOS)
             
-            # Create transparent version with 50% transparency
+            # Create transparent version with 70% opacity
             transparent_watermark = Image.new('RGBA', watermark.size, (0, 0, 0, 0))
-            for x in range(target_width):
-                for y in range(target_height):
+            for x in range(watermark.size[0]):
+                for y in range(watermark.size[1]):
                     pixel = watermark.getpixel((x, y))
                     transparent_watermark.putpixel(
                         (x, y),
@@ -303,9 +308,8 @@ class CameraCaptureSystem:
             self.prepared_watermark = transparent_watermark
             self.watermark_position = (
                 0,  # Left aligned
-                1350 - target_height - 100  # Bottom with 50px offset
+                1350 - watermark.size[1] - 100  # Bottom with 100px offset
             )
-
 
     def setup_camera(self):
         self.picam2 = Picamera2()
