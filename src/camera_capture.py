@@ -1,7 +1,7 @@
 import queue
 import re
 from picamera2 import Picamera2
-from picamera2.encoders import JpegEncoder
+from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 from libcamera import Transform
 import board
@@ -12,8 +12,6 @@ from PIL import Image
 import io
 import os
 from contextlib import contextmanager
-import evdev
-
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -184,7 +182,6 @@ class PixelAnimator:
         finally:
             self.pixels.fill((0, 0, 0))
             self.pixels.show()
-
     def start_animation(self, animation_type, duration=1, blocking=False, **kwargs):
         if self.animation_thread and self.animation_thread.is_alive():
             self.stop_event.set()
@@ -206,11 +203,9 @@ class PixelAnimator:
         else:
             self.animation_thread = threading.Thread(target=self._run_animation_with_context, args=(target, duration), kwargs=kwargs)
             self.animation_thread.start()
-
     def _run_animation_with_context(self, animation_func, duration, **kwargs):
         with self.animation_context():
             animation_func(duration, **kwargs)
-
     def _countdown_animation(self, duration):
         colors = [(255, 0, 0), (255, 255, 0), (0, 255, 0)]  # Red, Yellow, Green
         for color in colors:
@@ -223,14 +218,12 @@ class PixelAnimator:
                         self.pixels[i-1] = tuple(int(0.3 * c) for c in color)
                     self.pixels.show()
                     time.sleep(1 / self.num_pixels)
-
     def _flash_animation(self, duration):
         self.pixels.fill((255, 255, 255))
         self.pixels.show()
         time.sleep(0.3)
         self.pixels.fill((0, 0, 0))
         self.pixels.show()
-
     def _pulse_animation(self, duration, color=(0, 255, 0)):
         start_time = time.time()
         while time.time() - start_time < duration and not self.stop_event.is_set():
@@ -276,7 +269,7 @@ class CameraCaptureSystem:
         if hasattr(self, 'picam2'):
             self.picam2.stop()
 
-    def setup_watermark(self):
+    def _setup_watermark(self):
         """Prepare the watermark image once during initialization."""
         with Image.open('./static/img/watermark.png') as watermark:
             # Convert watermark to RGBA if it isn't already
@@ -325,7 +318,6 @@ class CameraCaptureSystem:
 
         # Set up MJPEG encoder and output
         self.output = StreamingOutput()
-        self.encoder = JpegEncoder(q=80)  # Set quality in constructor
         self.file_output = FileOutput(self.output)
 
     def mjpeg_generator(self):
@@ -342,16 +334,15 @@ class CameraCaptureSystem:
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 else:
                     print("Empty frame received")
-                time.sleep(0.033)
+                time.sleep(0.001)
         except Exception as e:
             print(f"Error in MJPEG generator: {str(e)}")
-
 
     def start_mjpeg_stream(self):
         if not self.streaming:
             self.streaming = True
             # Start recording without specifying quality here
-            self.picam2.start_recording(self.encoder, self.file_output)
+            self.picam2.start_recording(MJPEGEncoder(), self.file_output)
 
     def stop_mjpeg_stream(self):
         if self.streaming:
@@ -369,7 +360,6 @@ class CameraCaptureSystem:
             if match:
                 photo_numbers.append(int(match.group(1)))
         return max(photo_numbers) if photo_numbers else -1  # Return -1 if no photos found
-
     def _capture_single_image(self):
         """Helper method to capture a single image with flash"""
         self.capture_count += 1
@@ -395,7 +385,7 @@ class CameraCaptureSystem:
         print(f"Image captured: {filename}")
         self.stop_mjpeg_stream()
         return filename
-
+    
     def capture_image(self):
         """Capture a single image with countdown"""
         with self.capture_lock:
@@ -403,7 +393,6 @@ class CameraCaptureSystem:
             filename = self._capture_single_image()
             self.upload(filename)
             return filename
-
     def capture_image_3(self):
         """Capture three images with exactly 1 second between each"""
         with self.capture_lock:
@@ -444,7 +433,6 @@ class CameraCaptureSystem:
         
         self.upload_queue.add_to_queue(filename)
 
-
     def get_latest_photo(self):
         photos = self.get_all_photos()
         return photos[0] if photos else None
@@ -462,8 +450,6 @@ class CameraCaptureSystem:
 
     def cleanup(self):
         self.keep_running = False
-        if self.gamepad_device:
-            self.gamepad_device.close()
         self.stop_mjpeg_stream()
         self.picam2.stop()
         self.pixel_animator.stop_animation()

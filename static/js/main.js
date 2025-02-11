@@ -30,6 +30,78 @@ const CONFIG = {
     }
 };
 
+class AnimationBatcher {
+    constructor(targetFPS = 30) {
+        this.animations = new Set();
+        this.isRunning = false;
+        this.lastTimestamp = 0;
+        this.frameInterval = 1000 / targetFPS;
+        this.frameTime = 0;
+        this.fps = 0;
+        this.frameCount = 0;
+        this.lastFpsUpdate = 0;
+    }
+
+    start() {
+        if (!this.isRunning) {
+            this.isRunning = true;
+            this.lastTimestamp = performance.now();
+            this.animate(this.lastTimestamp);
+        }
+    }
+
+    stop() {
+        this.isRunning = false;
+        this.animations.clear();
+    }
+
+    add(animation) {
+        this.animations.add(animation);
+        this.start();
+        return () => this.animations.delete(animation);
+    }
+
+    animate = (timestamp) => {
+        if (!this.isRunning) return;
+
+        const deltaTime = timestamp - this.lastTimestamp;
+        this.frameTime += deltaTime;
+
+        // Update FPS counter
+        this.frameCount++;
+        if (timestamp - this.lastFpsUpdate >= 1000) {
+            this.fps = this.frameCount;
+            this.frameCount = 0;
+            this.lastFpsUpdate = timestamp;
+            console.log(`FPS: ${this.fps}`);
+        }
+
+        // Only update if enough time has passed for next frame
+        if (this.frameTime >= this.frameInterval) {
+            const elapsedTime = this.frameTime;
+            
+            // Batch all animations
+            this.animations.forEach(animation => {
+                try {
+                    animation(elapsedTime, timestamp);
+                } catch (error) {
+                    console.error('Animation error:', error);
+                }
+            });
+
+            // Reset frame time, keeping remainder for smooth timing
+            this.frameTime = this.frameTime % this.frameInterval;
+        }
+
+        this.lastTimestamp = timestamp;
+        requestAnimationFrame(this.animate);
+    }
+}
+
+
+// Global animation batcher
+const animationBatcher = new AnimationBatcher(30);
+
 // Utility functions
 class ImageLoader {
     static load(img) {
@@ -126,12 +198,13 @@ class TilesetSprite {
             height: `${height}px`,
             left: `${x}px`,
             top: `${y}px`,
-            transform: `rotate(${rotation}deg)`,
+            transform: `rotate(${rotation}deg) translateZ(0)`, // Added translateZ
             position: 'absolute',
             imageRendering: 'pixelated',
-            '-moz-crisp-edges': 'pixelated',
-            '-webkit-crisp-edges': 'pixelated',
-            msInterpolationMode: 'nearest-neighbor',
+            willChange: 'transform', // Added will-change
+            backfaceVisibility: 'hidden', // Added backface-visibility
+            perspective: '1000px', // Added perspective
+            '-webkit-font-smoothing': 'antialiased'
         });
 
         const canvas = document.createElement('canvas');
@@ -139,6 +212,8 @@ class TilesetSprite {
         canvas.height = this.tileHeight;
         canvas.style.width = '100%';
         canvas.style.height = '100%';
+        canvas.style.transform = 'translateZ(0)'; // Added translateZ
+
         
         container.appendChild(canvas);
         this.elements.add(container);
@@ -153,8 +228,29 @@ class TilesetSprite {
         };
     }
 
+    animate(elements, frameSequence, interval) {
+        let frameIndex = 0;
+        let accumulatedTime = 0;
+
+        const removeAnimation = animationBatcher.add((deltaTime) => {
+            accumulatedTime += deltaTime;
+            
+            // Update sprite frame if enough time has passed
+            if (accumulatedTime >= interval) {
+                const tileIndex = frameSequence[frameIndex];
+                elements.forEach(element => this.updateSprite(element, tileIndex));
+                frameIndex = (frameIndex + 1) % frameSequence.length;
+                accumulatedTime = accumulatedTime % interval;
+            }
+        });
+
+        return removeAnimation;
+    }
+
     updateSprite(element, tileIndex) {
         const canvas = element.querySelector('canvas');
+        if (!canvas) return;
+        
         const ctx = canvas.getContext('2d');
         const { row, col } = this.getTileCoords(tileIndex);
         
@@ -170,19 +266,6 @@ class TilesetSprite {
             this.tileWidth,
             this.tileHeight
         );
-    }
-
-    animate(elements, frameSequence, interval) {
-        let currentFrameIndex = 0;
-        
-        const updateFrame = () => {
-            const tileIndex = frameSequence[currentFrameIndex];
-            elements.forEach(element => this.updateSprite(element, tileIndex));
-            currentFrameIndex = (currentFrameIndex + 1) % frameSequence.length;
-        };
-
-        updateFrame();
-        return setInterval(updateFrame, interval);
     }
 }
 
@@ -223,35 +306,35 @@ class TravelingArrowsManager {
         this.lastFrameTime = 0;
     }
 
-    animate(elements, frameSequence, interval) {
-        let currentFrameIndex = 0;
-        let accumulatedTime = 0;
-        
-        const animate = (timestamp) => {
-            if (!this.lastFrameTime) this.lastFrameTime = timestamp;
-            const deltaTime = timestamp - this.lastFrameTime;
+    animate() {
+        const animateFrame = (timestamp) => {
+            if (!this.lastTimestamp) this.lastTimestamp = timestamp;
+            const deltaTime = timestamp - this.lastTimestamp;
             
-            accumulatedTime += deltaTime;
+            // Update arrow positions
+            this.activeArrows.forEach(arrow => {
+                const currentTop = parseFloat(arrow.style.top);
+                const newTop = currentTop - (deltaTime * this.config.speed);
+                arrow.style.top = `${newTop}px`;
+                
+                // Remove arrows that are off screen
+                if (newTop < -this.arrowHeight) {
+                    this.activeArrows.delete(arrow);
+                    arrow.remove();
+                }
+            });
             
-            if (accumulatedTime >= interval) {
-                const tileIndex = frameSequence[currentFrameIndex];
-                elements.forEach(element => this.updateSprite(element, tileIndex));
-                currentFrameIndex = (currentFrameIndex + 1) % frameSequence.length;
-                accumulatedTime = accumulatedTime % interval;
-            }
-            
-            this.lastFrameTime = timestamp;
-            this.animationFrameId = requestAnimationFrame(animate);
+            this.lastTimestamp = timestamp;
+            this.animationFrameId = requestAnimationFrame(animateFrame);
         };
         
-        this.animationFrameId = requestAnimationFrame(animate);
-        
-        return this.animationFrameId;
+        this.animationFrameId = requestAnimationFrame(animateFrame);
     }
 
     clearAllArrows() {
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
         }
         this.activeSpawners.forEach(timer => {
             clearInterval(timer);
@@ -327,38 +410,57 @@ class TravelingArrowsManager {
         );
 
         this.activeArrows.add(arrow);
-
-        Object.assign(arrow.style, {
-            transition: `top ${this.config.travelDuration}ms linear`,
-            opacity: '0.8'
-        });
-
         this.overlayLayer.appendChild(arrow);
 
-        requestAnimationFrame(() => {
-            arrow.style.top = `${this.config.topOffset}px`;
+        let startTime = null;
+        const startPosition = this.containerHeight;
+        const endPosition = this.config.topOffset;
+        const distance = startPosition - endPosition;
+
+        // Movement animation
+        const removeMovement = animationBatcher.add((_, timestamp) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / this.config.travelDuration, 1);
+            
+            const currentPosition = startPosition - (progress * distance);
+            arrow.style.top = `${currentPosition}px`;
+
+            if (progress >= 1) {
+                removeMovement();
+                this.createImpactEffect(columnIndex, rotation);
+                setTimeout(() => {
+                    this.activeArrows.delete(arrow);
+                    arrow.remove();
+                }, 50);
+            }
         });
 
-        // Create impact effect when arrow reaches top
-        const impactTimeout = setTimeout(() => {
-            this.createImpactEffect(columnIndex, rotation);
-        }, this.config.travelDuration - 20);
-
-        const removeTimeout = setTimeout(() => {
-            this.activeArrows.delete(arrow);
-            arrow.remove();
-        }, this.config.travelDuration);
-        
-        this.activeSpawners.add(impactTimeout);
-        this.activeSpawners.add(removeTimeout);
-
+        // Sprite animation
+        let frameIndex = 0;
+        let lastFrameTime = 0;
         const rowIndex = columnIndex;
         const frameSequence = Array.from(
-            { length: this.config.columns }, 
+            { length: this.config.columns },
             (_, i) => rowIndex * this.config.columns + i
         );
-        
-        this.sprites.animate([arrow], frameSequence, this.config.animationInterval);
+
+        const removeSprite = animationBatcher.add((_, timestamp) => {
+            if (timestamp - lastFrameTime >= this.config.animationInterval) {
+                const tileIndex = frameSequence[frameIndex];
+                this.sprites.updateSprite(arrow, tileIndex);
+                frameIndex = (frameIndex + 1) % frameSequence.length;
+                lastFrameTime = timestamp;
+            }
+        });
+
+        // Cleanup when arrow is removed
+        const originalRemove = arrow.remove;
+        arrow.remove = () => {
+            removeMovement();
+            removeSprite();
+            originalRemove.call(arrow);
+        };
 
         return arrow;
     }
@@ -427,37 +529,37 @@ class CountdownManager {
                 @keyframes countdownFadeInGrow {
                     0% {
                         opacity: 0;
-                        transform: translate(-50%, -50%) scale(0.8);
+                        transform: translate(-50%, -50%) scale(0.8) translateZ(0);
                     }
                     25% {
                         opacity: 1;
-                        transform: translate(-50%, -50%) scale(0.8);
+                        transform: translate(-50%, -50%) scale(0.8) translateZ(0);
                     }
                     85% {
                         opacity: 1;
-                        transform: translate(-50%, -50%) scale(1);
+                        transform: translate(-50%, -50%) scale(1) translateZ(0);
                     }
                     100% {
                         opacity: 0;
-                        transform: translate(-50%, -50%) scale(1);
+                        transform: translate(-50%, -50%) scale(1) translateZ(0);
                     }
                 }
                 @keyframes scoreFadeInOut {
                     0% {
                         opacity: 0;
-                        transform: translate(-50%, -50%) scale(0.5);
+                        transform: translate(-50%, -50%) scale(0.5) translateZ(0);
                     }
                     10% {
                         opacity: 1;
-                        transform: translate(-50%, -50%) scale(1);
+                        transform: translate(-50%, -50%) scale(1) translateZ(0);
                     }
                     90% {
                         opacity: 1;
-                        transform: translate(-50%, -50%) scale(1);
+                        transform: translate(-50%, -50%) scale(1) translateZ(0);
                     }
                     100% {
                         opacity: 0;
-                        transform: translate(-50%, -50%) scale(1);
+                        transform: translate(-50%, -50%) scale(1) translateZ(0);
                     }
                 }
                 @keyframes sunburstRotate {
@@ -517,7 +619,10 @@ class CountdownManager {
                 height: `${numberHeight}px`,
                 left: '50%',
                 top: '50%',
-                transform: 'translate(-50%, -50%) scale(0.5)',
+                transform: 'translate(-50%, -50%) scale(0.5) translateZ(0)',
+                willChange: 'transform, opacity',
+                backfaceVisibility: 'hidden',
+                perspective: '1000px',
                 zIndex: '1000',
                 imageRendering: 'pixelated',
                 '-moz-crisp-edges': 'pixelated',
@@ -582,7 +687,10 @@ class CountdownManager {
             height: `${scoreHeight}px`,
             left: '50%',
             top: '50%',
-            transform: 'translate(-50%, -50%) scale(0.5)',
+            transform: 'translate(-50%, -50%) scale(0.5) translateZ(0)',
+            willChange: 'transform, opacity',
+            backfaceVisibility: 'hidden',
+            perspective: '1000px',
             zIndex: '1001',
             imageRendering: 'pixelated',
             '-moz-crisp-edges': 'pixelated',
